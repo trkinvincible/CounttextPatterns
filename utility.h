@@ -13,58 +13,82 @@
 #include <regex>
 
 #ifdef USING_LOCK_FREE_CODE
-std::unordered_map<std::string,size_t>
-UpdateFrequency(std::string input_text){
 
-    std::unordered_map<std::string,size_t> pattern_frequency_table;
-    auto start = std::chrono::high_resolution_clock::now();
-
-    std::regex r(R"([^\W]+*)");
-    for(std::sregex_iterator i = std::sregex_iterator(input_text.begin(), input_text.end(), r);
-        i != std::sregex_iterator();
-        ++i)
-    {
-        std::smatch m = *i;
-        ++pattern_frequency_table[m.str()];
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto diff = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-    std::cout << std::this_thread::get_id() << " Complete in : " << diff.count() << "ms." << std::endl;
-
-    return pattern_frequency_table;
-}
-
-void MergeTables(std::unordered_map<std::string,size_t> &t1,std::unordered_map<std::string,size_t> t2){
-
-    for(auto &item : t2){
-
-        t1[item.first] += item.second;
-    }
-}
-
-void DisplayResults(std::unordered_map<std::string,size_t> &map,int list_size){
-
-    if(list_size > map.size()){
-
-        list_size = map.size();
-    }
+class FrequencyTableMngr
+{
     /*
+     * Rationale:
+     *
+     * master data structure is std::unordered_map which internally use hashing
+     * as the key is std::string no collisions are possible hence add/update/search is constanct time O(1)
+     *
+     * master data structure is guarded by mutex pegged to it both are not accessible outside of the class
+     *
+     * regular expression is used to seperate out the unique words
+     *
+     * displaying results:
      * convert unordered_map to vector - O(n)
      * partial_sort v - O(n(log(list_size-first)))
+     *
+     * unordered_map is transformed as vector so std::vector can support std::partial_sort()
+     *
     */
-    auto comparator = [](std::pair<std::string, int> &i1 ,std::pair<std::string, int> &i2)
-    {
-        return i1.second > i2.second;
-    };
-    std::vector<std::pair<std::string, int>> v(map.begin(),map.end());
-    std::partial_sort(v.begin(),v.begin()+list_size,v.end(),comparator);
+private:
+    static std::mutex mFreqTableGuard;
+    static std::unordered_map<std::string,size_t> mPatterFequencyTable;
+public:
+    std::string UpdateFrequency(std::string input_text){
 
-    std::for_each(v.begin(),v.begin()+list_size,[](std::pair<std::string,int> &item){
+        std::unordered_map<std::string,size_t> pattern_frequency_table;
+        auto start = std::chrono::high_resolution_clock::now();
 
-        std::cout << std::setw(10) << item.second << "   " << item.first << std::endl;
-    });
-}
+        std::regex r(R"([^\W]+*)");
+        for(std::sregex_iterator i = std::sregex_iterator(input_text.begin(), input_text.end(), r);
+            i != std::sregex_iterator();
+            ++i)
+        {
+            std::smatch m = *i;
+            ++pattern_frequency_table[m.str()];
+        }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto diff = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+        std::cout << std::this_thread::get_id() << " Complete in : " << diff.count() << "ms." << std::endl;
+
+        MergeWithMasterTable(std::move(pattern_frequency_table));
+
+        return "success";
+    }
+
+    static void MergeWithMasterTable(std::unordered_map<std::string,size_t> &&t2){
+
+        std::lock_guard<std::mutex> lock(mFreqTableGuard);
+        for(auto &item : t2){
+
+            mPatterFequencyTable[item.first] += item.second;
+        }
+    }
+
+    static void DisplayResults(int list_size){
+
+        if(list_size > mPatterFequencyTable.size()){
+
+            list_size = mPatterFequencyTable.size();
+        }
+
+        auto comparator = [](std::pair<std::string, int> &i1 ,std::pair<std::string, int> &i2)
+        {
+            return i1.second > i2.second;
+        };
+        std::vector<std::pair<std::string, int>> v(mPatterFequencyTable.begin(),mPatterFequencyTable.end());
+        std::partial_sort(v.begin(),v.begin()+list_size,v.end(),comparator);
+
+        std::for_each(v.begin(),v.begin()+list_size,[](std::pair<std::string,int> &item){
+
+            std::cout << std::setw(10) << item.second << "   " << item.first << std::endl;
+        });
+    }
+};
 #else
 class FrequencyTableMngr
 {

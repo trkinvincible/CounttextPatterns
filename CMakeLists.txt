@@ -10,6 +10,7 @@ SET( _SOURCES_
 SET( _HEADER_
 
     ${CMAKE_CURRENT_SOURCE_DIR}/utility.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/action_manager.h
 )
 
 ######################
