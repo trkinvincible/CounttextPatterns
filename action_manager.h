@@ -117,8 +117,12 @@ public:
 
                     auto func = [=](std::string input_buffer){
 
-                        FrequencyTableMngr mngr;
-                        return mngr.UpdateFrequency(input_buffer);
+#ifndef USING_LOCK_FREE_CODE
+                        std::shared_ptr<FrequencyTableMngr> mngr = FrequencyTableMngr::globalInstance();
+#else
+                        std::unique_ptr<FrequencyTableMngr> mngr = std::make_unique<FrequencyTableMngr>();
+#endif
+                        return mngr->UpdateFrequency(input_buffer);
                     };
                     std::packaged_task<std::string(std::string)> task(func);
                     vec_future.push_back(task.get_future());

@@ -2,6 +2,8 @@ project(groundlabs)
 
 cmake_minimum_required(VERSION 2.8)
 
+set(CMAKE_CXX_STANDARD 14)
+
 SET( _SOURCES_
 
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
@@ -36,7 +38,7 @@ add_executable(${PROJECT_NAME} ${_SOURCES_} ${_HEADER_})
 
 target_link_libraries(${PROJECT_NAME}
     -lpthread
-    -lboost_iostreams
+    #-lboost_iostreams
 )
 
 ######################
