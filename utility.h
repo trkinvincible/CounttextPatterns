@@ -42,7 +42,7 @@ public:
         std::unordered_map<std::string,size_t> pattern_frequency_table;
         auto start = std::chrono::high_resolution_clock::now();
 
-        std::regex r(R"([^\W]+*)");
+        std::regex r("\\w+");
         for(std::sregex_iterator i = std::sregex_iterator(input_text.begin(), input_text.end(), r);
             i != std::sregex_iterator();
             ++i)
