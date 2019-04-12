@@ -11,6 +11,11 @@
 #include <vector>
 #include <functional>
 #include <regex>
+#ifdef USING_BOOST_IPC
+#include <boost/interprocess/file_mapping.hpp>
+#include <boost/interprocess/mapped_region.hpp>
+#include <boost/algorithm/string.hpp>
+#endif
 
 #ifdef USING_LOCK_FREE_CODE
 
@@ -47,8 +52,58 @@ public:
             i != std::sregex_iterator();
             ++i)
         {
-            std::smatch m = *i;
-            ++pattern_frequency_table[m.str()];
+            ++pattern_frequency_table[i->str()];
+        }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto diff = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+        std::cout << std::this_thread::get_id() << " Complete in : " << diff.count() << "ms." << std::endl;
+
+        MergeWithMasterTable(std::move(pattern_frequency_table));
+
+        return "success";
+    }
+
+    std::string UpdateFrequency(std::string input_file_name,
+                                boost::interprocess::offset_t offset,
+                                std::size_t size){
+
+        boost::interprocess::file_mapping input_file_mapped(input_file_name.c_str(),boost::interprocess::read_only);
+        boost::interprocess::mapped_region mapped_region(input_file_mapped,
+                                                         boost::interprocess::read_only,
+                                                         offset,size);
+
+        const char* start_address = reinterpret_cast<const char*>(mapped_region.get_address());
+        auto end_address = start_address+size;
+
+        std::unordered_map<std::string,size_t> pattern_frequency_table;
+        auto start = std::chrono::high_resolution_clock::now();
+
+        std::locale loc;
+        bool word_started=false;
+        for(auto word_start=start_address;start_address != end_address;start_address++){
+
+            //for;--the
+            if(std::isalpha(*start_address,loc) && !word_started){
+
+                word_started = true;
+                word_start = start_address;
+            }else{
+                if((std::isspace(*start_address,loc)
+                    || (*start_address == '\n')
+                    || (std::ispunct(*start_address,loc))) && word_started){
+
+                    std::string temp;
+                    temp.assign(word_start,std::distance(word_start,start_address));
+                    ++pattern_frequency_table[temp];
+                    word_started = false;
+                }else{
+                    if(std::isalpha(*start_address,loc))
+                        continue;
+                    else
+                        word_started = false;
+                }
+            }
         }
 
         auto end = std::chrono::high_resolution_clock::now();

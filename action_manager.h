@@ -65,32 +65,45 @@ public:
         std::size_t individual_buffer_size = 0;
         std::vector<std::future<std::string>> vec_future;
 
+//        std::ofstream file("moby_2gb.txt",std::ios::binary|std::ios::out);
+//        std::ifstream input_file_stream(input_file_name,std::ios::in|std::ios::ate);
+//        if (!input_file_stream.is_open()) {
+
+//            std::cout << "failed to open " << input_file_name << '\n';
+//        }else {
+
+//            auto size = input_file_stream.tellg();
+//            std::string str(size,'\0');
+//            input_file_stream.seekg(0);
+//            input_file_stream.read(&str[0],size);
+//            for(int i=0;i<20*4*10*3;i++){
+//                file << str;
+//            }
+//            file.close();
+//        }
+
 #ifdef USING_BOOST_IPC
         boost::interprocess::file_mapping input_file_mapped(input_file_name.c_str(),boost::interprocess::read_only);
-        boost::interprocess::mapped_region mapped_region(input_file_mapped, boost::interprocess::read_only);
 
         try{
-            const char* start_address = reinterpret_cast<const char*>(mapped_region.get_address());
+            //map the entire file here
+            boost::interprocess::mapped_region mapped_region(input_file_mapped, boost::interprocess::read_only);
             std::size_t size  = mapped_region.get_size();
             individual_buffer_size = (size / number_of_cores_available);
+            boost::interprocess::offset_t offset=0;
 
-            for(int i=1;i <= number_of_cores_available;i++,start_address+=individual_buffer_size){
+            for(int i=1;i <= number_of_cores_available;i++,offset+=individual_buffer_size){
 
-                std::string str;
-                str.assign(start_address,individual_buffer_size);
+                auto func = [=](std::string file_name,
+                                boost::interprocess::offset_t offset,
+                                std::size_t size){
 
-                if(!str.empty()){
-
-                    auto func = [=](std::string input_buffer){
-
-                        FrequencyTableMngr mngr;
-                        return mngr.UpdateFrequency(input_buffer);
-                    };
-                    std::packaged_task<std::string(std::string)> task(func);
-                    vec_future.push_back(std::move(task.get_future()));
-                    std::thread(std::move(task),std::move(std::string(&str[0]))).detach();
-                    str.resize(0);
-                }
+                    FrequencyTableMngr mngr;
+                    return mngr.UpdateFrequency(file_name,offset,size);
+                };
+                std::packaged_task<std::string(std::string,boost::interprocess::offset_t,std::size_t)> task(func);
+                vec_future.push_back(std::move(task.get_future()));
+                std::thread(std::move(task),input_file_name,offset,individual_buffer_size).detach();
                 if(i == number_of_cores_available){
 
                     individual_buffer_size = size - (i*individual_buffer_size);
