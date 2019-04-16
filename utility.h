@@ -1,6 +1,7 @@
 #ifndef UTILITY_H
 #define UTILITY_H
 
+#include <sys/mman.h>
 #include <string>
 #include <memory>
 #include <unordered_map>
@@ -64,46 +65,61 @@ public:
         return "success";
     }
 
-    std::string UpdateFrequency(std::string input_file_name,
+    std::string UpdateFrequency(boost::interprocess::file_mapping &input_file_mapped,
                                 boost::interprocess::offset_t offset,
                                 std::size_t size){
 
-        boost::interprocess::file_mapping input_file_mapped(input_file_name.c_str(),boost::interprocess::read_only);
+        auto start = std::chrono::high_resolution_clock::now();
+
         boost::interprocess::mapped_region mapped_region(input_file_mapped,
                                                          boost::interprocess::read_only,
                                                          offset,size);
 
+        const int individual_chunk_count = 4;
+
         const char* start_address = reinterpret_cast<const char*>(mapped_region.get_address());
-        auto end_address = start_address+size;
-
+        auto mapped_region_size = mapped_region.get_size();
+        auto mapped_region_chunk_size = mapped_region_size/individual_chunk_count;
         std::unordered_map<std::string,size_t> pattern_frequency_table;
-        auto start = std::chrono::high_resolution_clock::now();
 
-        std::locale loc;
-        bool word_started=false;
-        for(auto word_start=start_address;start_address != end_address;start_address++){
+        int count = individual_chunk_count;
+        while(count--){
 
-            //for;--the
-            if(std::isalpha(*start_address,loc) && !word_started){
+            start_address = reinterpret_cast<const char*>(mapped_region.get_address());
+            const char* end_address;
+            if(count == 0)
+                end_address = start_address + mapped_region.get_size();
+            else
+                end_address = start_address + mapped_region_chunk_size;
 
-                word_started = true;
-                word_start = start_address;
-            }else{
-                if((std::isspace(*start_address,loc)
-                    || (*start_address == '\n')
-                    || (std::ispunct(*start_address,loc))) && word_started){
+            std::locale loc;
+            bool word_started=false;
+            for(auto word_start=start_address;start_address != end_address;start_address++){
 
-                    std::string temp;
-                    temp.assign(word_start,std::distance(word_start,start_address));
-                    ++pattern_frequency_table[temp];
-                    word_started = false;
+                //for;--the
+                if(std::isalpha(*start_address,loc) && !word_started){
+
+                    word_started = true;
+                    word_start = start_address;
                 }else{
-                    if(std::isalpha(*start_address,loc))
-                        continue;
-                    else
+                    if((std::isspace(*start_address,loc)
+                        || (*start_address == '\n')
+                        || (std::ispunct(*start_address,loc))) && word_started){
+
+                        std::string temp;
+                        temp.resize(std::distance(word_start,start_address));
+                        temp.assign(word_start,std::distance(word_start,start_address));
+                        ++pattern_frequency_table[temp];
                         word_started = false;
+                    }else{
+                        if(std::isalpha(*start_address,loc))
+                            continue;
+                        else
+                            word_started = false;
+                    }
                 }
             }
+            mapped_region.shrink_by(mapped_region_chunk_size,false);
         }
 
         auto end = std::chrono::high_resolution_clock::now();
